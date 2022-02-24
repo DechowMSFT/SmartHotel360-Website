@@ -1,0 +1,19 @@
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: "dechowdemocluster-e228"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: "dechowdemocluster-e228"
+  template:
+    metadata:
+      labels:
+        app: "dechowdemocluster-e228"
+    spec:
+      containers:
+        - name: "dechowdemocluster-e228"
+          image: "dechowregistry.azurecr.io/dechowdemocluster"
+          ports:
+          - containerPort: 80
