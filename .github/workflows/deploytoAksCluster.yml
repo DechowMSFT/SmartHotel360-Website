@@ -1,0 +1,63 @@
+on: [push]
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    
+    - uses: actions/checkout@master
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Create ACR
+      id: create-acr
+      run: |
+        az acr create -n dechowregistry -g dechowregistrya4bd-rg --location "South India" --sku Standard --admin-enabled
+        echo "::set-output name=acr_username::`az acr credential show -n dechowregistry --query username | xargs`"
+        echo "::set-output name=acr_password::`az acr credential show -n dechowregistry --query passwords[0].value | xargs`"
+        echo "::add-mask::`az acr credential show -n dechowregistry --query passwords[0].value | xargs`"
+
+    - uses: azure/docker-login@v1
+      with:
+        login-server: dechowregistry.azurecr.io
+        username: ${{ steps.create-acr.outputs.acr_username }}
+        password: ${{ steps.create-acr.outputs.acr_password }}
+
+    - name: Build and push image to ACR
+      id: build-image
+      run: |
+        docker build "$GITHUB_WORKSPACE/Source/SmartHotel360.Website" -f  "Source/SmartHotel360.Website/Dockerfile" -t dechowregistry.azurecr.io/dechowdemocluster:${{ github.sha }} --label dockerfile-path=Source/SmartHotel360.Website/Dockerfile
+        docker push dechowregistry.azurecr.io/dechowdemocluster:${{ github.sha }}
+    
+    - uses: azure/k8s-set-context@v1
+      id: login
+      with:
+         kubeconfig: ${{ secrets.aks_dechowdemocluster_kubeConfig }}
+    
+    - name: Create namespace
+      run: |
+        namespacePresent=`kubectl get namespace | grep azure-vote | wc -l`
+        if [ $namespacePresent -eq 0 ]
+        then
+            echo `kubectl create namespace azure-vote`
+        fi
+
+    - uses: azure/k8s-create-secret@v1
+      with:
+        namespace: azure-vote
+        container-registry-url: dechowregistry.azurecr.io
+        container-registry-username: ${{ steps.create-acr.outputs.acr_username }}
+        container-registry-password: ${{ steps.create-acr.outputs.acr_password }}
+        secret-name: dechowdemocldockerauth
+       
+    - uses: azure/k8s-deploy@v1.2
+      with:
+        namespace: azure-vote
+        manifests: |
+          manifests/deployment.yml
+          manifests/service.yml
+        images: |
+          dechowregistry.azurecr.io/dechowdemocluster:${{ github.sha }}
+        imagepullsecrets: |
+          dechowdemocldockerauth   
